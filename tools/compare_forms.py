@@ -11,7 +11,8 @@ import subprocess
 import sys
 import tempfile
 
-MODES = ["-std=c90 -pedantic-errors", "-std=c90", "-std=c99 -pedantic-errors", "-std=gnu90"]
+MODES = ["-std=c90 -pedantic-errors", "-std=c90", "-std=c99 -pedantic-errors", "-std=gnu90",
+         "-std=gnu90 -pedantic-errors"]
 
 FORMS = [
     # Words with two underscores.
