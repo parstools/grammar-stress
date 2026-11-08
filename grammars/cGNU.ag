@@ -32,10 +32,17 @@ channels {
 /*
  * An attribute after a declarator belongs to that declarator. So a K&R parameter
  * declaration cannot start with an attribute: int f(a) __attribute__((x)) int a; { }
+ * _Atomic followed by a parenthesis is the type specifier, unless a qualifier came
+ * first, as in const _Atomic (int). In a member, enum E : 3 is a bit-field, so such a
+ * member cannot use an enum with an underlying type.
  */
 conflicts {
     prefer shift Else over reduce ifStatement#IfStatement;
     prefer reduce declaratorSuffixes#NoSuffix over shift AttributeWord;
+    prefer reduce declaratorSuffixes#NoSuffix over shift StandardAttributeOpen;
+    prefer shift LeftParenthesis over reduce atomicQualifier#PlainAtomic;
+    prefer reduce qualifierList#Qualifiers over shift AtomicWord;
+    prefer reduce enumSpecifier#EnumReference over shift Colon;
 }
 
 node compilationUnit
@@ -71,7 +78,7 @@ node functionDefinition
 
 /* The body reopens the scope of the parameters of the function declarator. */
 node functionBody
-    : '{' scopeReopen items=blockItem* scopeClose '}'
+    : '{' scopeReopen items=blockItem* last=finalLabel? scopeClose '}'
     ;
 
 node initDeclaration
@@ -114,8 +121,8 @@ node keywordSpecifiers
     ;
 
 node namedSpecifiers
-    : name=TypedefName
-    | list=impliedSpecifiers name=TypedefName
+    : name=typeWord
+    | list=impliedSpecifiers name=typeWord
     | list=namedSpecifiers item=declarationItem
     ;
 
@@ -133,7 +140,7 @@ node typedefKeywordSpecifiers
     ;
 
 node typedefNamedSpecifiers
-    : list=typedefImpliedSpecifiers name=TypedefName
+    : list=typedefImpliedSpecifiers name=typeWord
     | list=namedSpecifiers 'typedef'
     | list=typedefNamedSpecifiers item=declarationItem
     ;
@@ -177,10 +184,16 @@ node storageClass
     | keyword='__inline__'
     | keyword='__thread'
     | keyword='_Thread_local'
+    | keyword='thread_local'
     | keyword='_Noreturn'
     | keyword='constexpr'
-    | keyword='_Alignas' '(' alignment=commaExpression ')'
-    | keyword='_Alignas' '(' type=typeName ')'
+    | keyword=alignasKeyword '(' alignment=commaExpression ')'
+    | keyword=alignasKeyword '(' type=typeName ')'
+    ;
+
+inline alignasKeyword
+    : value='_Alignas'
+    | value='alignas'
     ;
 
 node type
@@ -191,14 +204,14 @@ node type
 node specifiers
     : first=keywordSpecifier rest=tailSpecifier*
     | qualifiers=qualifierList first=keywordSpecifier rest=tailSpecifier*
-    | name=TypedefName
-    | name=TypedefName after=qualifierList
-    | qualifiers=qualifierList name=TypedefName
-    | qualifiers=qualifierList name=TypedefName after=qualifierList
+    | name=typeWord
+    | name=typeWord after=qualifierList
+    | qualifiers=qualifierList name=typeWord
+    | qualifiers=qualifierList name=typeWord after=qualifierList
     ;
 
 node qualifierList
-    : items=typeQualifier+
+    : items=typeQualifier+ #Qualifiers
     ;
 
 node tailSpecifier
@@ -237,6 +250,10 @@ node keywordSpecifier
     | keyword='_Decimal64'
     | keyword='_Decimal128'
     | keyword='__builtin_va_list'
+    | keyword='__builtin_sysv_va_list'
+    | keyword='__builtin_ms_va_list'
+    | keyword='__auto_type'
+    | keyword=AtomicWord LeftParenthesis type=typeName ')'
     | keyword='__int128_t'
     | keyword='__uint128_t'
     | keyword='_BitInt' '(' size=constantExpression ')'
@@ -255,8 +272,15 @@ inline typeofKeyword
     | value='__typeof_unqual__'
     ;
 
+/* _Atomic followed by a parenthesis is always the type specifier. */
+node atomicQualifier
+    : AtomicWord #PlainAtomic
+    ;
+
 node typeQualifier
-    : keyword='_Atomic'
+    : value=atomicQualifier
+    | keyword='__seg_fs'
+    | keyword='__seg_gs'
     | keyword='const'
     | keyword='__const'
     | keyword='__const__'
@@ -270,8 +294,31 @@ node typeQualifier
     ;
 
 /* An attribute stands where a qualifier can, and in the few other places using it. */
-node attributeSpecifier
+inline attributeSpecifier
+    : value=gnuAttribute
+    | value=standardAttribute
+    ;
+
+node gnuAttribute
     : AttributeWord '(' '(' items=attributeList ')' ')'
+    ;
+
+/* [[...]] from C23. As [[ cannot occur in other C, it is one token. */
+node standardAttribute
+    : StandardAttributeOpen items=standardAttributeList ']' ']'
+    ;
+
+node standardAttributeList
+    : value=standardAttributeItem
+    | list=standardAttributeList ',' item=standardAttributeItem
+    ;
+
+node standardAttributeItem
+    : empty
+    | name=attributeName
+    | name=attributeName '(' arguments=argumentExpressionList? ')'
+    | scope=attributeName '::' name=attributeName
+    | scope=attributeName '::' name=attributeName '(' arguments=argumentExpressionList? ')'
     ;
 
 node attributeList
@@ -339,6 +386,7 @@ inline asmQualifier
 
 node asmPart
     : ':' operands=asmOperandList?
+    | '::' operands=asmOperandList?
     ;
 
 node asmOperandList
@@ -361,7 +409,13 @@ node asmStrings
 /* A name which may equal a typedef name without any relation to it. */
 inline anyName
     : value=Identifier
-    | value=TypedefName
+    | value=typeWord
+    ;
+
+/* bool is a keyword only since C23, so it behaves like a typedef name, which it was. */
+inline typeWord
+    : value=TypedefName
+    | value='bool'
     ;
 
 node structSpecifier
@@ -399,8 +453,29 @@ node memberDeclarator
     ;
 
 node enumSpecifier
-    : head=enumHead tag=anyName
-    | head=enumHead tag=anyName? body=enumBody
+    : head=enumHead tag=anyName                                               #EnumReference
+    | head=enumHead body=enumBody                                             #AnonymousEnum
+    | head=enumHead tag=anyName body=enumBody                                 #TaggedEnum
+    | head=enumHead ':' underlying=enumUnderlying body=enumBody               #AnonymousTypedEnum
+    | head=enumHead tag=anyName ':' underlying=enumUnderlying body=enumBody   #TaggedTypedEnum
+    ;
+
+/* An integer type, so that its end cannot be mistaken for the start of the body. */
+node enumUnderlying
+    : items=enumUnderlyingWord+
+    ;
+
+inline enumUnderlyingWord
+    : value='char'
+    | value='short'
+    | value='int'
+    | value='long'
+    | value='signed'
+    | value='unsigned'
+    | value='const'
+    | value='__int128'
+    | value='_Bool'
+    | value=typeWord
     ;
 
 node enumBody
@@ -491,6 +566,7 @@ inline declaratorName -> captureName
 
 node functionParameters
     : '(' scopeOpen parameters=parameterOrTypeList? scopeClose ')'
+    | '(' scopeOpen variadic='...' scopeClose ')'
     | '(' scopeOpen parameters=parameterOrTypeList ',' variadic='...' scopeClose ')'
     ;
 
@@ -625,7 +701,14 @@ node directAbstractDeclarator
     ;
 
 node compoundStatement
-    : '{' scopeOpen items=blockItem* scopeClose '}'
+    : '{' scopeOpen items=blockItem* last=finalLabel? scopeClose '}'
+    ;
+
+/* A label without a statement exists only at the end of a block, since C23. */
+node finalLabel
+    : name=anyName ':'
+    | keyword='case' label=constantExpression ':'
+    | keyword='default' ':'
     ;
 
 /* Declarations and statements in any order, as since C99. */
@@ -668,7 +751,11 @@ node statement
     | keyword='case' label=constantExpression ':' body=statement
     | keyword='default' ':' body=statement
     | name=anyName ':' body=statement
+    | name=anyName ':' declaration=plainLocalDeclaration
+    | keyword='case' label=constantExpression ':' declaration=plainLocalDeclaration
+    | keyword='default' ':' declaration=plainLocalDeclaration
     | attribute=attributeSpecifier ';'
+    | attribute=attributeSpecifier 'return' expression=commaExpression? ';'
     | keyword='goto' target=anyName ';'
     | keyword='goto' '*' computed=commaExpression ';'
     | keyword='case' label=constantExpression '...' last=constantExpression ':' body=statement
@@ -793,7 +880,8 @@ node unaryExpression
     ;
 
 inline alignofKeyword
-    : value='_Alignof'
+    : value='alignof'
+    | value='_Alignof'
     | value='__alignof'
     | value='__alignof__'
     ;
@@ -865,6 +953,22 @@ Else
 
 AttributeWord
     : '__attribute__' | '__attribute'
+    ;
+
+StandardAttributeOpen
+    : '[['
+    ;
+
+AtomicWord
+    : '_Atomic'
+    ;
+
+LeftParenthesis
+    : '('
+    ;
+
+Colon
+    : ':'
     ;
 
 Identifier
