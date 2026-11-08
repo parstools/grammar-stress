@@ -37,7 +37,7 @@ channels {
  * member cannot use an enum with an underlying type.
  */
 conflicts {
-    prefer shift Else over reduce ifStatement#IfStatement;
+    prefer shift Else over reduce ifScopeClose#IfScopeClose;
     prefer reduce declaratorSuffixes#NoSuffix over shift AttributeWord;
     prefer reduce declaratorSuffixes#NoSuffix over shift StandardAttributeOpen;
     prefer shift LeftParenthesis over reduce atomicQualifier#PlainAtomic;
@@ -746,12 +746,12 @@ node statement
     : value=compoundStatement
     | expression=commaExpression? ';'
     | value=ifStatement
-    | keyword='while' '(' condition=commaExpression ')' body=statement
-    | keyword='do' body=statement 'while' '(' condition=commaExpression ')' ';'
+    | keyword='while' '(' scopeOpen condition=commaExpression ')' body=statement scopeClose
+    | keyword='do' scopeOpen body=statement 'while' '(' condition=commaExpression ')' scopeClose ';'
     | keyword='for' '(' init=commaExpression? ';' condition=commaExpression? ';' step=commaExpression? ')' body=statement
     | keyword='for' '(' scopeOpen declaration=plainLocalDeclaration condition=commaExpression? ';' step=commaExpression? ')' body=statement scopeClose
     | value=asmStatement
-    | keyword='switch' '(' condition=commaExpression ')' body=statement
+    | keyword='switch' '(' scopeOpen condition=commaExpression ')' body=statement scopeClose
     | keyword='case' label=constantExpression ':' body=statement
     | keyword='default' ':' body=statement
     | name=anyName ':' body=statement
@@ -770,8 +770,13 @@ node statement
 
 /* A dangling else belongs to the nearest if. */
 node ifStatement
-    : 'if' '(' condition=commaExpression ')' then=statement                       #IfStatement
-    | 'if' '(' condition=commaExpression ')' then=statement Else otherwise=statement #IfElseStatement
+    : 'if' '(' scopeOpen condition=commaExpression ')' then=statement ifScopeClose                       #IfStatement
+    | 'if' '(' scopeOpen condition=commaExpression ')' then=statement Else otherwise=statement scopeClose #IfElseStatement
+    ;
+
+/* Selection and iteration statements are blocks since C99: a tag or an enumerator declared in them ends with them. */
+node ifScopeClose -> popScope
+    : empty #IfScopeClose
     ;
 
 node constantExpression
@@ -993,12 +998,18 @@ Colon
     ;
 
 Identifier
-    : Nondigit ( Nondigit | Digit ) *
+    : NameStart ( NameStart | Digit ) *
+    ;
+
+/* Besides letters, a name takes universal character names, and $ as gcc allows. */
+fragment NameStart
+    : Nondigit | '$' | '\\' 'u' HexDigit HexDigit HexDigit HexDigit
+    | '\\' 'U' HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit
     ;
 
 /* Never selected by the lexer, as Identifier comes first. */
 TypedefName
-    : Nondigit ( Nondigit | Digit ) * -> nameOf(Identifier)
+    : NameStart ( NameStart | Digit ) * -> nameOf(Identifier)
     ;
 
 /*
