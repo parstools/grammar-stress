@@ -52,7 +52,15 @@ node externalDeclaration
 node declaration
     : value=initDeclaration
     | value=typeDefinition
+    | value=staticAssertion
     | ';'
+    ;
+
+node staticAssertion
+    : '_Static_assert' '(' condition=constantExpression ')' ';'
+    | '_Static_assert' '(' condition=constantExpression ',' message=StringLiteral+ ')' ';'
+    | 'static_assert' '(' condition=constantExpression ')' ';'
+    | 'static_assert' '(' condition=constantExpression ',' message=StringLiteral+ ')' ';'
     ;
 
 node functionDefinition
@@ -170,6 +178,9 @@ node storageClass
     | keyword='__thread'
     | keyword='_Thread_local'
     | keyword='_Noreturn'
+    | keyword='constexpr'
+    | keyword='_Alignas' '(' alignment=commaExpression ')'
+    | keyword='_Alignas' '(' type=typeName ')'
     ;
 
 node type
@@ -226,12 +237,27 @@ node keywordSpecifier
     | keyword='_Decimal64'
     | keyword='_Decimal128'
     | keyword='__builtin_va_list'
+    | keyword='__int128_t'
+    | keyword='__uint128_t'
+    | keyword='_BitInt' '(' size=constantExpression ')'
+    | keyword=typeofKeyword '(' expression=commaExpression ')'
+    | keyword=typeofKeyword '(' type=typeName ')'
     | value=structSpecifier
     | value=enumSpecifier
     ;
 
+inline typeofKeyword
+    : value='typeof'
+    | value='__typeof'
+    | value='__typeof__'
+    | value='typeof_unqual'
+    | value='__typeof_unqual'
+    | value='__typeof_unqual__'
+    ;
+
 node typeQualifier
-    : keyword='const'
+    : keyword='_Atomic'
+    | keyword='const'
     | keyword='__const'
     | keyword='__const__'
     | keyword='volatile'
@@ -354,7 +380,8 @@ inline structKeyword
     ;
 
 node memberDeclaration
-    : type=type declarators=memberDeclaratorList ';'
+    : type=type declarators=memberDeclaratorList? ';'
+    | value=staticAssertion
     | '__extension__' value=memberDeclaration
     ;
 
@@ -617,6 +644,15 @@ node plainLocalDeclaration
     : type=declarationSpecifiers declarators=initDeclaratorList? ';'
     | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     | value=typeDefinition
+    | value=staticAssertion
+    | '__label__' labels=labelNameList ';'
+    | type=declarationSpecifiers declarator=declaredName parameters=parametersKandRList? body=functionBody
+    | implied=impliedSpecifiers declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
+    ;
+
+node labelNameList
+    : value=anyName
+    | list=labelNameList ',' item=anyName
     ;
 
 node statement
@@ -634,6 +670,8 @@ node statement
     | name=anyName ':' body=statement
     | attribute=attributeSpecifier ';'
     | keyword='goto' target=anyName ';'
+    | keyword='goto' '*' computed=commaExpression ';'
+    | keyword='case' label=constantExpression '...' last=constantExpression ':' body=statement
     | keyword='break' ';'
     | keyword='continue' ';'
     | keyword='return' expression=commaExpression? ';'
@@ -676,6 +714,7 @@ inline assignmentOperator
 node conditionalExpression
     : value=logicalOrExpression
     | condition=logicalOrExpression '?' then=commaExpression ':' otherwise=conditionalExpression
+    | condition=logicalOrExpression '?' ':' otherwise=conditionalExpression
     ;
 
 node logicalOrExpression
@@ -750,6 +789,7 @@ node unaryExpression
     | op='sizeof' '(' type=typeName ')'
     | op=alignofKeyword operand=unaryExpression
     | op=alignofKeyword '(' type=typeName ')'
+    | op='&&' label=anyName
     ;
 
 inline alignofKeyword
@@ -784,8 +824,14 @@ node postfixExpression
     ;
 
 node argumentExpressionList
+    : value=argument
+    | list=argumentExpressionList ',' item=argument
+    ;
+
+/* A type is an argument of builtins, such as __builtin_va_arg, or of attributes. */
+inline argument
     : value=assignmentExpression
-    | list=argumentExpressionList ',' item=assignmentExpression
+    | value=typeName
     ;
 
 node primaryExpression
@@ -793,6 +839,18 @@ node primaryExpression
     | value=constant
     | strings=StringLiteral+
     | '(' value=commaExpression ')'
+    | '(' statements=compoundStatement ')'
+    | '_Generic' '(' controlling=assignmentExpression ',' associations=genericAssociationList ')'
+    ;
+
+node genericAssociationList
+    : value=genericAssociation
+    | list=genericAssociationList ',' item=genericAssociation
+    ;
+
+node genericAssociation
+    : type=typeName ':' value=assignmentExpression
+    | keyword='default' ':' value=assignmentExpression
     ;
 
 inline constant
