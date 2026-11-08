@@ -3,9 +3,10 @@
 Exhaustive tests of [Agas](https://github.com/parstools/borsuk) `.ag` grammars on
 thousands of real source files. This repository holds the tools which run the grammars
 and show what they still reject, and in `grammars/` the grammars growing on those files:
-`c90.ag` on sources without includes, and later `cGNU.ag` on everything. A finished
-grammar goes to Borsuk. Source files are not copied here: the tools take a path to
-them, such as the test suite of a gcc checkout.
+`c90.ag`, `c99.ag` and `c11.ag` for plain sources without includes, `gnu90.ag` and
+`gnu99.ag` for what gcc takes in those modes with `-pedantic-errors`, and `cGNU.ag` for
+everything. A finished grammar goes to Borsuk. Source files are not copied here: the
+tools take a path to them, such as the test suite of a gcc checkout.
 
 C comes first, and C++ sources can already be prepared. The tools are meant to take
 other languages later.
@@ -72,6 +73,14 @@ chosen by path and `--seed`. Once a full pass has left few failures, `--only-fai
 results/full/results.tsv --out results/retry` takes just those, with another output so
 that the full report stays. A last pass over all files then catches any regression.
 
+`tools/step.sh` does one step of such work: it stops at unresolved conflicts of the
+grammar, otherwise builds the package, runs it with the options given and groups the
+syntax errors with `tools/report_errors.py`:
+
+```sh
+AGAS=path/to/agas tools/step.sh grammars/gnu99.ag /tmp/grammar-stress/c/gnu99
+```
+
 Without `--preprocessed`, `run` takes sources and calls the compiler itself, in the
 mode given by `--std` (`c90` by default) and `--no-pedantic`.
 
@@ -94,7 +103,7 @@ with the tokens at which parsing stopped:
 preprocessing. `-pedantic-errors` alone does not reject `__attribute__` or `__asm__`, so
 a file which passes it is not yet pure C90. Other words starting with `__`, such as
 `__builtin_abort`, are ordinary names to a grammar and stay. `--no-includes` only drops
-files with includes, and `--exclude-word` files with a given word. `tools/compare_forms.py` shows which
-forms each gcc mode and each grammar accepts, and `samples/` holds the same difference
+files with includes, and `--exclude-word` files with a given word. `tools/compare_forms.py AGAS PACKAGE...`
+shows which forms each gcc mode and each given grammar accepts, and `samples/` holds the same difference
 as real files: `c90-reserved-words.c` for what gcc lets through in its strict C90 mode,
 and `gnu-only.c` for what it does not. Both are for `cGNU.ag` and outside plain `c90.ag`.
