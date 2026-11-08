@@ -40,6 +40,20 @@ double real_and_imaginary(__complex__ double z)
     return __real__ z + __imag__ z + __real z + __imag z;
 }
 
+/* __extension__ lets gcc -std=c90 -pedantic-errors accept any GNU syntax after it. */
+
+__extension__ int extension_on_declaration;
+__extension__ typedef int ExtensionTypedef;
+int extension_in_expression = __extension__ 1;
+struct ExtensionMember { __extension__ int a; };
+
+int extension_in_block(void)
+{
+    __extension__ int inner;
+    inner = __extension__ ({ 1; });
+    return inner;
+}
+
 /* Words which become keywords outside strict modes. */
 
 void asm_statement(void) { asm(""); }

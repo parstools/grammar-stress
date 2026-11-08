@@ -86,11 +86,12 @@ with the tokens at which parsing stopped:
 | `too-big` | not parsed, as the file produces more than `--max-bytes` |
 | `skipped` | named in `--skip-list` |
 | `not-accepted-by-compiler` | the compiler rejects the source in the requested mode, so it says nothing about the grammar |
-| `has-include`, `has-gnu-words` | left out by `--pure` |
+| `has-include`, `has-gnu-words` | left out by `--pure`, the first also by `--no-includes` |
+| `has-excluded-word` | left out by `--exclude-word` |
 | `preprocessor-failed`, `agas-error`, `timeout` | the file could not be judged |
 
-`--no-includes` keeps files without includes, which need no names from headers: this
-is the set for `c90.ag`. `--pure` also drops files with words starting with `__` after
+`--no-includes --exclude-word __extension__` is the set for `c90.ag`: files which need no
+names from headers, and no GNU syntax that `__extension__` lets through. `--pure` also drops files with words starting with `__` after
 preprocessing. `-pedantic-errors` alone does not reject `__attribute__` or `__asm__`,
 so a file which passes it is not yet pure C90. `tools/compare_forms.py` shows which
 forms each gcc mode and each grammar accepts, and `samples/` holds the same difference

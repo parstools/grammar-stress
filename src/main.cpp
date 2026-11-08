@@ -61,6 +61,7 @@ struct Options {
     unsigned jobs{std::max(1U, std::thread::hardware_concurrency())};
     std::set<fs::path> skipped{};
     std::set<std::string> excludedDirectories{};
+    std::vector<std::string> excludedWords{};
     fs::path onlyFailing{};
 };
 
@@ -100,6 +101,7 @@ from C90.
 
   --language   c takes *.c with gcc; c++ takes *.C, *.cc, *.cpp and *.cxx with g++
   --no-includes  take only files without includes
+  --exclude-word  leave out files with this word after preprocessing; can be repeated
   --pure       take only files without includes and without __ words after
                preprocessing, as -pedantic-errors does not reject those words
   --max-bytes  skip a file as too-big when it produces more than this after
@@ -153,6 +155,8 @@ auto parseOptions(int argc, char **argv) -> Options {
             options.skipped = readSkipList(value());
         else if (name == "--exclude-dir")
             options.excludedDirectories.insert(value());
+        else if (name == "--exclude-word")
+            options.excludedWords.push_back(value());
         else if (name == "--limit")
             options.limit = std::stoull(value());
         else if (name == "--only-failing")
@@ -358,6 +362,15 @@ auto collectSources(const Options &options) -> std::vector<fs::path> {
 
 auto isWordCharacter(char value) -> bool {
     return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '_';
+}
+
+auto hasWord(const std::string &text, const std::string &word) -> bool {
+    for (std::size_t found = text.find(word); found != std::string::npos; found = text.find(word, found + 1)) {
+        const std::size_t end = found + word.size();
+        if ((found == 0 || !isWordCharacter(text[found - 1])) && (end == text.size() || !isWordCharacter(text[end])))
+            return true;
+    }
+    return false;
 }
 
 auto hasDoubleUnderscoreWord(const std::string &text) -> bool {
@@ -629,6 +642,12 @@ auto examine(const Options &options, const fs::path &compiler, const fs::path &s
     if ((options.pureOnly || options.noIncludes) && includes) {
         finding.category = "has-include";
         return finding;
+    }
+    for (const auto &word: options.excludedWords) {
+        if (hasWord(code, word)) {
+            finding.category = "has-excluded-word";
+            return finding;
+        }
     }
     if (options.pureOnly && hasDoubleUnderscoreWord(code)) {
         finding.category = "has-gnu-words";

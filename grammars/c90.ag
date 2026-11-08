@@ -4,9 +4,10 @@
  * wherever the corpus shows a gap. Finished, it goes to Borsuk.
  *
  * That mode rejects GNU syntax, with one clear exception: words starting with __ are
- * reserved for the compiler, so it accepts forms such as __attribute__, __asm__ and
- * __extension__. tools/compare_forms.py shows the boundary. All other GNU forms belong
- * to cGNU.ag, as do the plain words asm, inline and typeof, which are names here.
+ * reserved for the compiler, so it accepts forms such as __attribute__ and __asm__.
+ * tools/compare_forms.py shows the boundary. All other GNU forms belong to cGNU.ag, as
+ * do the plain words asm, inline and typeof, which are names here. So does __extension__,
+ * as gcc accepts any GNU syntax after it, which no grammar short of cGNU.ag could follow.
  *
  * Typedef names come from the name table: the parser declares names as it reduces,
  * and an identifier whose innermost declaration is a type reaches the grammar as
@@ -49,7 +50,6 @@ node compilationUnit
 node externalDeclaration
     : value=functionDefinition
     | value=declaration
-    | '__extension__' value=externalDeclaration
     | value=asmStatement
     ;
 
@@ -352,7 +352,6 @@ inline structKeyword
 
 node memberDeclaration
     : type=type declarators=memberDeclaratorList ';'
-    | '__extension__' value=memberDeclaration
     ;
 
 node memberDeclaratorList
@@ -568,13 +567,7 @@ node statementList
     : items=statement+
     ;
 
-/* Only one __extension__ here: a second one could also start an expression. */
 node localDeclaration
-    : value=plainLocalDeclaration
-    | '__extension__' value=plainLocalDeclaration
-    ;
-
-node plainLocalDeclaration
     : type=declarationSpecifiers declarators=initDeclaratorList? ';'
     | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     | value=typeDefinition
@@ -718,8 +711,7 @@ inline alignofKeyword
     ;
 
 inline unaryOperator
-    : value='__extension__'
-    | value='__real'
+    : value='__real'
     | value='__real__'
     | value='__imag'
     | value='__imag__'

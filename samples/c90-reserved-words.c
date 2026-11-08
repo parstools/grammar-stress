@@ -1,6 +1,7 @@
 /*
  * What gcc -std=c90 -pedantic-errors accepts beyond plain C90: forms with words
- * starting with __, which are reserved for the compiler. c90.ag has to accept them.
+ * starting with __, which are reserved for the compiler. c90.ag has to accept them,
+ * apart from __extension__, which gnu-only.c covers.
  *
  *     gcc -std=c90 -pedantic-errors -c c90-reserved-words.c
  *
@@ -80,21 +81,6 @@ void asm_goto(void)
     __asm__ goto("" : : : : done);
 done:
     ;
-}
-
-/* __extension__. */
-
-__extension__ int extension_on_declaration;
-__extension__ typedef int ExtensionTypedef;
-int extension_in_expression = __extension__ 1;
-struct ExtensionMember {
-    __extension__ int a;
-};
-
-void extension_in_block(void)
-{
-    __extension__ int inner;
-    inner = __extension__ 1;
 }
 
 /* Other spellings of keywords. */
