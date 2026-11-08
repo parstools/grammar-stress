@@ -1,0 +1,6 @@
+# Files in gcc/testsuite/gcc.c-torture which expand to more than 200000 bytes.
+compile/20001226-1.c
+compile/limits-blockid.c
+compile/limits-caselabels.c
+compile/limits-externalid.c
+compile/limits-fndefn.c

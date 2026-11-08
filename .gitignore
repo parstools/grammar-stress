@@ -51,6 +51,9 @@ Makefile
 install_manifest.txt
 compile_commands.json
 
+# Reports of runs, which depend on the machine and on the source files
+results/
+
 # Temporary files
 *.tmp
 *.log
