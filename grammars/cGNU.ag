@@ -78,7 +78,7 @@ node functionDefinition
 
 /* The body reopens the scope of the parameters of the function declarator. */
 node functionBody
-    : '{' scopeReopen items=blockItem* last=finalLabel? scopeClose '}'
+    : LeftBrace scopeReopen items=blockItem* last=finalLabel? scopeClose RightBrace
     ;
 
 node initDeclaration
@@ -305,7 +305,7 @@ node gnuAttribute
 
 /* [[...]] from C23. As [[ cannot occur in other C, it is one token. */
 node standardAttribute
-    : StandardAttributeOpen items=standardAttributeList ']' ']'
+    : StandardAttributeOpen items=standardAttributeList RightBracket RightBracket
     ;
 
 node standardAttributeList
@@ -398,7 +398,7 @@ node asmOperandList
 node asmOperand
     : constraint=asmStrings
     | constraint=asmStrings '(' value=commaExpression ')'
-    | '[' name=anyName ']' constraint=asmStrings '(' value=commaExpression ')'
+    | LeftBracket name=anyName RightBracket constraint=asmStrings '(' value=commaExpression ')'
     | label=anyName
     ;
 
@@ -420,7 +420,7 @@ inline typeWord
 
 node structSpecifier
     : head=structHead tag=anyName
-    | head=structHead tag=anyName? '{' members=memberDeclaration+ '}'
+    | head=structHead tag=anyName? LeftBrace members=memberDeclaration+ RightBrace
     ;
 
 /* A shared rule, so that LR(1) need not choose between the rules above early. */
@@ -479,8 +479,8 @@ inline enumUnderlyingWord
     ;
 
 node enumBody
-    : '{' enumerators=enumeratorList '}'
-    | '{' enumerators=enumeratorList ',' '}'
+    : LeftBrace enumerators=enumeratorList RightBrace
+    | LeftBrace enumerators=enumeratorList ',' RightBrace
     ;
 
 node enumHead
@@ -610,8 +610,8 @@ node parametersKandR
 
 /* The size can be any expression, for variable length arrays. */
 node array
-    : '[' qualifiers=arrayQualifiers size=assignmentExpression? ']'
-    | '[' qualifiers=arrayQualifiers '*' ']'
+    : LeftBracket qualifiers=arrayQualifiers size=assignmentExpression? RightBracket
+    | LeftBracket qualifiers=arrayQualifiers '*' RightBracket
     ;
 
 node arrayQualifiers
@@ -629,9 +629,9 @@ node initializer
     ;
 
 node bracedInitializer
-    : '{' '}'
-    | '{' items=initializerList '}'
-    | '{' items=initializerList ',' '}'
+    : LeftBrace RightBrace
+    | LeftBrace items=initializerList RightBrace
+    | LeftBrace items=initializerList ',' RightBrace
     ;
 
 node initializerList
@@ -652,8 +652,8 @@ node designatorList
     ;
 
 node designator
-    : '[' index=constantExpression ']'
-    | '[' first=constantExpression '...' last=constantExpression ']'
+    : LeftBracket index=constantExpression RightBracket
+    | LeftBracket first=constantExpression '...' last=constantExpression RightBracket
     | '.' member=anyName
     ;
 
@@ -701,7 +701,7 @@ node directAbstractDeclarator
     ;
 
 node compoundStatement
-    : '{' scopeOpen items=blockItem* last=finalLabel? scopeClose '}'
+    : LeftBrace scopeOpen items=blockItem* last=finalLabel? scopeClose RightBrace
     ;
 
 /* A label without a statement exists only at the end of a block, since C23. */
@@ -902,7 +902,7 @@ inline unaryOperator
 
 node postfixExpression
     : value=primaryExpression
-    | base=postfixExpression '[' index=commaExpression ']'
+    | base=postfixExpression LeftBracket index=commaExpression RightBracket
     | base=postfixExpression '(' arguments=argumentExpressionList? ')'
     | base=postfixExpression op='.' member=anyName
     | base=postfixExpression op='->' member=anyName
@@ -956,7 +956,24 @@ AttributeWord
     ;
 
 StandardAttributeOpen
-    : '[['
+    : '[[' | '<:<:' | '[<:' | '<:['
+    ;
+
+/* Digraphs are other spellings of the same tokens, so the parser does not see them. */
+LeftBracket
+    : '[' | '<:'
+    ;
+
+RightBracket
+    : ']' | ':>'
+    ;
+
+LeftBrace
+    : '{' | '<%'
+    ;
+
+RightBrace
+    : '}' | '%>'
     ;
 
 AtomicWord
