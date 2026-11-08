@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Show which forms outside plain C90 each gcc mode and each grammar accepts.
 
-usage: compare_forms.py AGAS C90_PACKAGE CGNU_PACKAGE
+usage: compare_forms.py AGAS PACKAGE...
 
 Every form is a small complete translation unit without macros or includes, so
 that what gcc reports is about the form itself and not about its origin.
@@ -11,8 +11,8 @@ import subprocess
 import sys
 import tempfile
 
-MODES = ["-std=c90 -pedantic-errors", "-std=c90", "-std=c99 -pedantic-errors", "-std=gnu90",
-         "-std=gnu90 -pedantic-errors"]
+MODES = ["-std=c90 -pedantic-errors", "-std=c90", "-std=c99 -pedantic-errors", "-std=c11 -pedantic-errors",
+         "-std=gnu90", "-std=gnu90 -pedantic-errors", "-std=gnu99 -pedantic-errors"]
 
 FORMS = [
     # Words with two underscores.
@@ -100,6 +100,17 @@ FORMS = [
     ("_Alignas", "_Alignas(8) int x;"),
     ("_Alignof", "int x = _Alignof(int);"),
     ("_Atomic", "_Atomic int x;"),
+    ("_Atomic as a specifier", "_Atomic(int) x;"),
+    ("_Alignas in a member", "struct S { _Alignas(8) int a; };"),
+    ("anonymous member", "struct S { union { int a; }; };"),
+    ("_Static_assert in a member", "struct S { int a; _Static_assert(1, \"x\"); };"),
+    ("_Static_assert without a message", "_Static_assert(1);"),
+    ("_Alignof of an expression", "int a; int x = _Alignof(a);"),
+    ("u8 string", "const char *s = u8\"x\";"),
+    ("u8 character", "int x = u8'x';"),
+    ("u string", "const void *s = u\"x\";"),
+    ("raw string", "const char *s = R\"(x)\";"),
+    ("imaginary constant", "_Complex double z = 1.0i;"),
     ("_Noreturn", "_Noreturn void f(void);"),
     ("_Thread_local", "_Thread_local int x;"),
     ("[[attribute]]", "[[deprecated]] int x;"),
@@ -117,16 +128,15 @@ def accepted(command, input_path):
 
 
 def main():
-    agas, c90_package, cgnu_package = sys.argv[1:4]
+    agas, *packages = sys.argv[1:]
     with tempfile.TemporaryDirectory() as directory:
         path = os.path.join(directory, "form.c")
-        print("\t".join(["form", *MODES, "c90.ag", "cGNU.ag"]))
+        print("\t".join(["form", *MODES, *(os.path.basename(package) for package in packages)]))
         for name, source in FORMS:
             with open(path, "w", encoding="utf-8") as output:
                 output.write(source + "\n")
             row = [accepted(["gcc", "-x", "c", *mode.split(), "-fsyntax-only"], path) for mode in MODES]
-            row.append(accepted([agas, "--ast-stats", c90_package], path))
-            row.append(accepted([agas, "--ast-stats", cgnu_package], path))
+            row.extend(accepted([agas, "--ast-stats", package], path) for package in packages)
             print("\t".join([name, *("yes" if value else "-" for value in row)]))
 
 
