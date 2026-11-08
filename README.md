@@ -67,6 +67,9 @@ build/bin/grammar-stress run /tmp/grammar-stress/c/c90 --preprocessed \
     --agas path/to/agas --package /tmp/c90 --out results/c90 --pure
 ```
 
+While a grammar changes, `--sample 10` takes about every tenth file for a quick pass,
+chosen by path and `--seed`. A pass over all files comes when the sample is clean.
+
 Without `--preprocessed`, `run` takes sources and calls the compiler itself, in the
 mode given by `--std` (`c90` by default) and `--no-pedantic`.
 

@@ -55,6 +55,8 @@ struct Options {
     bool preprocessed{false};
     std::uintmax_t maximumBytes{200'000};
     std::size_t limit{0};
+    std::uint64_t sample{1};
+    std::uint64_t seed{0};
     unsigned jobs{std::max(1U, std::thread::hardware_concurrency())};
     std::set<fs::path> skipped{};
     std::set<std::string> excludedDirectories{};
@@ -80,6 +82,7 @@ constexpr std::string_view usage =
   grammar-stress run ROOT --agas PATH --package DIR --out DIR [--preprocessed]
                  [--language c] [--std c90] [--no-pedantic] [--pure] [--max-bytes N]
                  [--skip-list FILE] [--exclude-dir NAME] [--jobs N] [--limit N]
+                 [--sample N] [--seed N]
 
 prepare  sorts the sources under ROOT by the first standard which the compiler
          accepts with -pedantic-errors: lists in DIR/<std>.txt, and also too-big,
@@ -100,6 +103,8 @@ from C90.
                preprocessing, not counting system headers
   --skip-list  skip the files listed there, relative to ROOT, before any work
   --exclude-dir  leave out this directory directly under ROOT; can be repeated
+  --sample N   take about every Nth file, chosen by its path and --seed, for a quick
+               pass; other seeds give other files
 )";
 
 auto parseOptions(int argc, char **argv) -> Options {
@@ -143,6 +148,10 @@ auto parseOptions(int argc, char **argv) -> Options {
             options.excludedDirectories.insert(value());
         else if (name == "--limit")
             options.limit = std::stoull(value());
+        else if (name == "--sample")
+            options.sample = std::max<std::uint64_t>(1, std::stoull(value()));
+        else if (name == "--seed")
+            options.seed = std::stoull(value());
         else if (name == "--jobs")
             options.jobs = std::max(1, std::stoi(value()));
         else
@@ -284,6 +293,16 @@ auto compilerName(const Options &options) -> std::string {
 
 // --- Source files --------------------------------------------------------
 
+// FNV-1a: the same files for the same seed, on every machine.
+auto sampleHash(const std::string &path, std::uint64_t seed) -> std::uint64_t {
+    std::uint64_t hash = 14695981039346656037ULL ^ seed;
+    for (const char value: path) {
+        hash ^= static_cast<unsigned char>(value);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
 auto collectSources(const Options &options) -> std::vector<fs::path> {
     static const std::set<std::string> cExtensions{".c"};
     static const std::set<std::string> cppExtensions{".C", ".cc", ".cpp", ".cxx"};
@@ -296,7 +315,8 @@ auto collectSources(const Options &options) -> std::vector<fs::path> {
         if (!entry.is_regular_file() || !extensions.contains(entry.path().extension().string()))
             continue;
         fs::path source = fs::relative(entry.path(), options.root);
-        if (!options.excludedDirectories.contains(source.begin()->string()))
+        if (!options.excludedDirectories.contains(source.begin()->string()) &&
+            sampleHash(source.generic_string(), options.seed) % options.sample == 0)
             sources.push_back(std::move(source));
     }
     std::ranges::sort(sources);
