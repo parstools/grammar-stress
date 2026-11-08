@@ -68,7 +68,9 @@ build/bin/grammar-stress run /tmp/grammar-stress/c/c90 --preprocessed \
 ```
 
 While a grammar changes, `--sample 10` takes about every tenth file for a quick pass,
-chosen by path and `--seed`. A pass over all files comes when the sample is clean.
+chosen by path and `--seed`. Once a full pass has left few failures, `--only-failing
+results/full/results.tsv --out results/retry` takes just those, with another output so
+that the full report stays. A last pass over all files then catches any regression.
 
 Without `--preprocessed`, `run` takes sources and calls the compiler itself, in the
 mode given by `--std` (`c90` by default) and `--no-pedantic`.

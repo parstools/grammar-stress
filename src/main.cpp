@@ -60,6 +60,7 @@ struct Options {
     unsigned jobs{std::max(1U, std::thread::hardware_concurrency())};
     std::set<fs::path> skipped{};
     std::set<std::string> excludedDirectories{};
+    fs::path onlyFailing{};
 };
 
 // One path relative to ROOT in a line; empty lines and # comments are ignored.
@@ -82,7 +83,7 @@ constexpr std::string_view usage =
   grammar-stress run ROOT --agas PATH --package DIR --out DIR [--preprocessed]
                  [--language c] [--std c90] [--no-pedantic] [--pure] [--max-bytes N]
                  [--skip-list FILE] [--exclude-dir NAME] [--jobs N] [--limit N]
-                 [--sample N] [--seed N]
+                 [--sample N] [--seed N] [--only-failing RESULTS.TSV]
 
 prepare  sorts the sources under ROOT by the first standard which the compiler
          accepts with -pedantic-errors: lists in DIR/<std>.txt, and also too-big,
@@ -105,6 +106,8 @@ from C90.
   --exclude-dir  leave out this directory directly under ROOT; can be repeated
   --sample N   take about every Nth file, chosen by its path and --seed, for a quick
                pass; other seeds give other files
+  --only-failing  take only the files which this results.tsv did not parse; give
+               another --out, so that the full report stays
 )";
 
 auto parseOptions(int argc, char **argv) -> Options {
@@ -148,6 +151,8 @@ auto parseOptions(int argc, char **argv) -> Options {
             options.excludedDirectories.insert(value());
         else if (name == "--limit")
             options.limit = std::stoull(value());
+        else if (name == "--only-failing")
+            options.onlyFailing = value();
         else if (name == "--sample")
             options.sample = std::max<std::uint64_t>(1, std::stoull(value()));
         else if (name == "--seed")
@@ -303,7 +308,29 @@ auto sampleHash(const std::string &path, std::uint64_t seed) -> std::uint64_t {
     return hash;
 }
 
+// The files of an earlier report which a grammar has not parsed yet.
+auto readFailing(const fs::path &report) -> std::vector<fs::path> {
+    std::ifstream in(report);
+    if (!in)
+        throw std::invalid_argument("cannot open report " + report.string());
+    std::vector<fs::path> sources;
+    std::string line;
+    std::getline(in, line);
+    while (std::getline(in, line)) {
+        const auto first = line.find('\t');
+        const auto second = line.find('\t', first + 1);
+        if (first == std::string::npos || second == std::string::npos)
+            continue;
+        const auto category = std::string_view{line}.substr(first + 1, second - first - 1);
+        if (category == "rejected" || category == "lexer-error" || category == "agas-error" || category == "timeout")
+            sources.emplace_back(line.substr(0, first));
+    }
+    return sources;
+}
+
 auto collectSources(const Options &options) -> std::vector<fs::path> {
+    if (!options.onlyFailing.empty())
+        return readFailing(options.onlyFailing);
     static const std::set<std::string> cExtensions{".c"};
     static const std::set<std::string> cppExtensions{".C", ".cc", ".cpp", ".cxx"};
     static const std::set<std::string> preprocessedExtensions{".i"};
