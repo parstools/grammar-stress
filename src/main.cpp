@@ -318,19 +318,20 @@ auto hasDoubleUnderscoreWord(const std::string &text) -> bool {
 }
 
 struct Preprocessed {
-    std::string text;
+    std::string code;
     std::uintmax_t ownBytes{};
     bool includes{};
 };
 
-// Parsers do not read line markers, which also tell what came from system headers.
-// Only a marker with flags 1 and 3 enters a system file, and only flag 2 leaves one:
-// other markers with flag 3 mark macro expansions inside the source itself. So
-// ownBytes counts what the file itself produces, however large its headers are.
-// The compiler enters stdc-predef.h by itself, which is no include of the source.
-auto removeLineMarkers(const std::string &text) -> Preprocessed {
+// Reads preprocessed text, which grammars take as it is: they ignore lines starting
+// with #, while here line markers tell what came from system headers. code is the
+// text without such lines. Only a marker with flags 1 and 3 enters a system file, and
+// only flag 2 leaves one: other markers with flag 3 mark macro expansions inside the
+// source itself. So ownBytes counts what the file itself produces, however large its
+// headers are. The compiler enters stdc-predef.h by itself, which is no include.
+auto inspectPreprocessed(const std::string &text) -> Preprocessed {
     Preprocessed result;
-    result.text.reserve(text.size());
+    result.code.reserve(text.size());
     std::size_t systemDepth = 0;
     std::size_t position = 0;
     while (position < text.size()) {
@@ -359,8 +360,8 @@ auto removeLineMarkers(const std::string &text) -> Preprocessed {
         const auto first = line.find_first_not_of(" \t");
         if (first != std::string_view::npos && line[first] == '#')
             continue;
-        result.text.append(line);
-        result.text += '\n';
+        result.code.append(line);
+        result.code += '\n';
         if (systemDepth == 0)
             result.ownBytes += line.size() + 1;
     }
@@ -406,7 +407,7 @@ auto prepareSource(const Options &options, const fs::path &compiler, const fs::p
                                          files.output, files.errors);
         if (expanded.timedOut || expanded.exitCode != 0)
             return "none";
-        if (removeLineMarkers(readFile(files.output)).ownBytes > options.maximumBytes)
+        if (inspectPreprocessed(readFile(files.output)).ownBytes > options.maximumBytes)
             return "too-big";
         if (!options.preprocessedOut.empty()) {
             const fs::path kept = options.preprocessedOut / standard / (source.string() + ".i");
@@ -567,8 +568,9 @@ auto examine(const Options &options, const fs::path &compiler, const fs::path &s
             return finding;
         }
     }
-    const auto [preprocessed, ownBytes, includes] =
-            removeLineMarkers(readFile(options.preprocessed ? options.root / source : files.output));
+    const fs::path input = options.preprocessed ? options.root / source : files.output;
+    const std::string preprocessed = readFile(input);
+    const auto [code, ownBytes, includes] = inspectPreprocessed(preprocessed);
     if (ownBytes > options.maximumBytes) {
         finding.category = "too-big";
         return finding;
@@ -577,15 +579,14 @@ auto examine(const Options &options, const fs::path &compiler, const fs::path &s
         finding.category = "has-include";
         return finding;
     }
-    std::ofstream(files.output, std::ios::binary | std::ios::trunc) << preprocessed;
-    if (options.pureOnly && hasDoubleUnderscoreWord(preprocessed)) {
+    if (options.pureOnly && hasDoubleUnderscoreWord(code)) {
         finding.category = "has-gnu-words";
         return finding;
     }
     // --ast-stats stops before the AST wire, whose limits say nothing about the grammar.
     const fs::path discard = fs::path{files.errors}.replace_extension(".stats");
-    const auto parsed = runProcess(options.agas, {"--ast-stats", options.package.string(), files.output.string()},
-                                   discard, files.errors);
+    const auto parsed =
+            runProcess(options.agas, {"--ast-stats", options.package.string(), input.string()}, discard, files.errors);
     std::error_code ignored;
     fs::remove(discard, ignored);
     if (parsed.timedOut) {

@@ -617,3 +617,8 @@ Newline
 BlockComment
     : '/*' . * ? '*/' -> channel ( HIDDEN )
     ;
+
+/* What preprocessing leaves: line markers, #pragma and #ident. */
+Directive
+    : '#' ~ [\r\n] * -> channel ( HIDDEN )
+    ;
