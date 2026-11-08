@@ -46,6 +46,7 @@ node externalDeclaration
     : value=functionDefinition
     | value=declaration
     | '__extension__' value=externalDeclaration
+    | value=asmStatement
     ;
 
 node declaration
@@ -62,7 +63,7 @@ node functionDefinition
 
 /* The body reopens the scope of the parameters of the function declarator. */
 node functionBody
-    : '{' scopeReopen declarations=localDeclaration* statements=statementList? scopeClose '}'
+    : '{' scopeReopen items=blockItem* scopeClose '}'
     ;
 
 node initDeclaration
@@ -287,8 +288,48 @@ node asmLabel
     ;
 
 inline asmKeyword
-    : value='__asm__'
+    : value='asm'
+    | value='__asm__'
     | value='__asm'
+    ;
+
+/* An asm statement, also at file scope, with operands in up to four parts. */
+node asmStatement
+    : asmKeyword qualifiers=asmQualifier* '(' template=StringLiteral+ parts=asmPart* ')' ';'
+    ;
+
+inline asmQualifier
+    : value='goto'
+    | value='inline'
+    | value='__inline'
+    | value='__inline__'
+    | value='const'
+    | value='__const'
+    | value='__const__'
+    | value='volatile'
+    | value='__volatile'
+    | value='__volatile__'
+    ;
+
+node asmPart
+    : ':' operands=asmOperandList?
+    ;
+
+node asmOperandList
+    : value=asmOperand
+    | list=asmOperandList ',' item=asmOperand
+    ;
+
+/* An output or input with its expression, a clobber, or a goto label. */
+node asmOperand
+    : constraint=asmStrings
+    | constraint=asmStrings '(' value=commaExpression ')'
+    | '[' name=anyName ']' constraint=asmStrings '(' value=commaExpression ')'
+    | label=anyName
+    ;
+
+node asmStrings
+    : items=StringLiteral+
     ;
 
 /* A name which may equal a typedef name without any relation to it. */
@@ -332,7 +373,12 @@ node memberDeclarator
 
 node enumSpecifier
     : head=enumHead tag=anyName
-    | head=enumHead tag=anyName? '{' enumerators=enumeratorList '}'
+    | head=enumHead tag=anyName? body=enumBody
+    ;
+
+node enumBody
+    : '{' enumerators=enumeratorList '}'
+    | '{' enumerators=enumeratorList ',' '}'
     ;
 
 node enumHead
@@ -340,11 +386,8 @@ node enumHead
     ;
 
 node enumeratorList
-    : first=enumerator rest=enumeratorListGroup1*
-    ;
-
-inline enumeratorListGroup1
-    : ',' value=enumerator
+    : value=enumerator
+    | list=enumeratorList ',' item=enumerator
     ;
 
 node enumerator
@@ -462,19 +505,53 @@ node parametersKandR
     | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     ;
 
+/* The size can be any expression, for variable length arrays. */
 node array
-    : '[' size=constantExpression? ']'
+    : '[' qualifiers=arrayQualifiers size=assignmentExpression? ']'
+    | '[' qualifiers=arrayQualifiers '*' ']'
+    ;
+
+node arrayQualifiers
+    : items=arrayQualifier*
+    ;
+
+inline arrayQualifier
+    : value=typeQualifier
+    | value='static'
     ;
 
 node initializer
     : value=assignmentExpression
+    | value=bracedInitializer
+    ;
+
+node bracedInitializer
+    : '{' '}'
     | '{' items=initializerList '}'
     | '{' items=initializerList ',' '}'
     ;
 
 node initializerList
+    : value=initializerItem
+    | list=initializerList ',' item=initializerItem
+    ;
+
+node initializerItem
     : value=initializer
-    | list=initializerList ',' item=initializer
+    | designators=designatorList '=' value=initializer
+    | designators=designatorList value=initializer
+    | name=anyName ':' value=initializer
+    ;
+
+node designatorList
+    : value=designator
+    | list=designatorList item=designator
+    ;
+
+node designator
+    : '[' index=constantExpression ']'
+    | '[' first=constantExpression '...' last=constantExpression ']'
+    | '.' member=anyName
     ;
 
 node typeDefinition
@@ -521,12 +598,13 @@ node directAbstractDeclarator
     ;
 
 node compoundStatement
-    : '{' scopeOpen declarations=localDeclaration* statements=statementList? scopeClose '}'
+    : '{' scopeOpen items=blockItem* scopeClose '}'
     ;
 
-/* No empty reduction may come before a statement, as T: and T x; start alike. */
-node statementList
-    : items=statement+
+/* Declarations and statements in any order, as since C99. */
+inline blockItem
+    : value=localDeclaration
+    | value=statement
     ;
 
 /* Only one __extension__ here: a second one could also start an expression. */
@@ -548,6 +626,8 @@ node statement
     | keyword='while' '(' condition=commaExpression ')' body=statement
     | keyword='do' body=statement 'while' '(' condition=commaExpression ')' ';'
     | keyword='for' '(' init=commaExpression? ';' condition=commaExpression? ';' step=commaExpression? ')' body=statement
+    | keyword='for' '(' scopeOpen declaration=plainLocalDeclaration condition=commaExpression? ';' step=commaExpression? ')' body=statement scopeClose
+    | value=asmStatement
     | keyword='switch' '(' condition=commaExpression ')' body=statement
     | keyword='case' label=constantExpression ':' body=statement
     | keyword='default' ':' body=statement
@@ -680,6 +760,10 @@ inline alignofKeyword
 
 inline unaryOperator
     : value='__extension__'
+    | value='__real__'
+    | value='__real'
+    | value='__imag__'
+    | value='__imag'
     | value='&'
     | value='*'
     | value='+'
@@ -696,6 +780,7 @@ node postfixExpression
     | base=postfixExpression op='->' member=anyName
     | base=postfixExpression op='++'
     | base=postfixExpression op='--'
+    | '(' type=typeName ')' literal=bracedInitializer
     ;
 
 node argumentExpressionList
@@ -733,20 +818,42 @@ TypedefName
     : Nondigit ( Nondigit | Digit ) * -> nameOf(Identifier)
     ;
 
+/*
+ * Numbers in their general form, as gcc has checked every file before the grammar sees
+ * it. A number takes any suffix, and digits can be separated by an apostrophe.
+ */
 IntegerConstant
-    : ( NonzeroDigit Digit * | '0' OctalDigit * | '0' [xX] HexDigit + ) IntegerSuffix ?
+    : Digit ( Digit | Nondigit | '\'' ) *
     ;
 
 FloatingConstant
-    : ( Digit + '.' Digit * | '.' Digit + ) Exponent ? [fFlL] ? | Digit + Exponent [fFlL] ?
+    : ( Digits '.' Digits ? | '.' Digits ) Exponent ? NumberSuffix
+    | Digits Exponent NumberSuffix
+    | '0' [xX] ( HexDigits ( '.' HexDigits ? ) ? | '.' HexDigits ) [pP] [+-] ? Digits NumberSuffix
     ;
 
 CharacterConstant
-    : 'L' ? '\'' ( ~ ['\\\r\n] | EscapeSequence ) + '\''
+    : StringPrefix ? '\'' ( ~ ['\\\r\n] | EscapeSequence ) + '\''
     ;
 
 StringLiteral
-    : 'L' ? '"' ( ~ ["\\\r\n] | EscapeSequence ) * '"'
+    : StringPrefix ? '"' ( ~ ["\\\r\n] | EscapeSequence ) * '"'
+    ;
+
+fragment StringPrefix
+    : 'L' | 'u' | 'U' | 'u8'
+    ;
+
+fragment Digits
+    : Digit ( Digit | '\'' ) *
+    ;
+
+fragment HexDigits
+    : HexDigit ( HexDigit | '\'' ) *
+    ;
+
+fragment NumberSuffix
+    : ( Nondigit | Digit ) *
     ;
 
 fragment Digit
@@ -769,16 +876,12 @@ fragment Nondigit
     : [a-zA-Z_]
     ;
 
-fragment IntegerSuffix
-    : [uU] ( 'l' 'l' ? | 'L' 'L' ? ) ? | ( 'l' 'l' ? | 'L' 'L' ? ) [uU] ?
-    ;
-
 fragment Exponent
     : [eE] [+-] ? Digit +
     ;
 
 fragment EscapeSequence
-    : '\\' ['"?\\abfnrtv] | '\\' OctalDigit OctalDigit ? OctalDigit ? | '\\x' HexDigit + | '\\' [uU] HexDigit +
+    : '\\' ~ [\r\n]
     ;
 
 Whitespace
