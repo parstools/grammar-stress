@@ -355,6 +355,10 @@ auto removeLineMarkers(const std::string &text) -> Preprocessed {
                 --systemDepth;
             continue;
         }
+        // #pragma and #ident survive preprocessing, but they are no part of the language.
+        const auto first = line.find_first_not_of(" \t");
+        if (first != std::string_view::npos && line[first] == '#')
+            continue;
         result.text.append(line);
         result.text += '\n';
         if (systemDepth == 0)
