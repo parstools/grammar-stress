@@ -35,7 +35,7 @@ conflicts {
 }
 
 node compilationUnit
-    : declarations=externalDeclaration* EOF
+    : directive=FirstDirective? declarations=externalDeclaration* EOF
     ;
 
 node externalDeclaration
@@ -50,9 +50,9 @@ node declaration
     ;
 
 node functionDefinition
-    : type=declarationType declarator=declaredName parameters=parametersKandRList? body=functionBody
+    : type=declarationSpecifiers declarator=declaredName parameters=parametersKandRList? body=functionBody
     | declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
-    | type=implicitType declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
+    | implied=impliedSpecifiers declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
     ;
 
 /* The body reopens the scope of the parameters of the function declarator. */
@@ -61,15 +61,67 @@ node functionBody
     ;
 
 node initDeclaration
-    : type=declarationType declarators=initDeclaratorList? ';'
-    | type=implicitType declarators=implicitInitDeclaratorList ';'
+    : type=declarationSpecifiers declarators=initDeclaratorList? ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     ;
 
-/* What stands before a declarator when int is implied. */
-node implicitType
-    : storage=storageClass
-    | qualifiers=qualifierList
-    | storage=storageClass qualifiers=qualifierList
+/*
+ * Specifiers of a declaration in any order, as C90 allows. A declaration goes through
+ * up to three stages: only storage classes and qualifiers, which imply int; then a
+ * keyword type or one typedef name. A typedef name after a keyword type is the
+ * declared name, so it cannot continue the specifiers. typedef itself can appear at
+ * any stage, and the same three stages after it decide that declarators declare types.
+ */
+inline declarationSpecifiers
+    : value=keywordSpecifiers
+    | value=namedSpecifiers
+    ;
+
+inline typedefSpecifiers
+    : value=typedefKeywordSpecifiers
+    | value=typedefNamedSpecifiers
+    ;
+
+inline declarationItem
+    : value=storageClass
+    | value=typeQualifier
+    ;
+
+node impliedSpecifiers
+    : item=declarationItem
+    | list=impliedSpecifiers item=declarationItem
+    ;
+
+node keywordSpecifiers
+    : keyword=keywordSpecifier
+    | list=impliedSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers item=declarationItem
+    ;
+
+node namedSpecifiers
+    : name=TypedefName
+    | list=impliedSpecifiers name=TypedefName
+    | list=namedSpecifiers item=declarationItem
+    ;
+
+node typedefImpliedSpecifiers
+    : 'typedef'
+    | list=impliedSpecifiers 'typedef'
+    | list=typedefImpliedSpecifiers item=declarationItem
+    ;
+
+node typedefKeywordSpecifiers
+    : list=typedefImpliedSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers 'typedef'
+    | list=typedefKeywordSpecifiers keyword=keywordSpecifier
+    | list=typedefKeywordSpecifiers item=declarationItem
+    ;
+
+node typedefNamedSpecifiers
+    : list=typedefImpliedSpecifiers name=TypedefName
+    | list=namedSpecifiers 'typedef'
+    | list=typedefNamedSpecifiers item=declarationItem
     ;
 
 node implicitInitDeclaratorList
@@ -99,12 +151,6 @@ node implicitDirectDeclarator
 
 inline implicitName -> captureName
     : value=Identifier
-    ;
-
-/* A shared rule, so that LR(1) need not choose between the rules above early. */
-node declarationType
-    : type=type
-    | storage=storageClass type=type
     ;
 
 node storageClass
@@ -286,12 +332,10 @@ node parameterOrTypeList
 
 /* A lone Identifier is a K&R name; a typedef name there would be a prototype. */
 node parameterOrType
-    : type=type declarator=declaredName?
-    | type=type abstract=parameterAbstractDeclarator
-    | storage=storageClass type=type declarator=declaredName?
-    | storage=storageClass type=type abstract=parameterAbstractDeclarator
-    | implied=implicitType
-    | implied=implicitType declarator=implicitDeclaredName
+    : type=declarationSpecifiers declarator=declaredName?
+    | type=declarationSpecifiers abstract=parameterAbstractDeclarator
+    | implied=impliedSpecifiers
+    | implied=impliedSpecifiers declarator=implicitDeclaredName
     | name=Identifier
     ;
 
@@ -314,9 +358,8 @@ node parametersKandRList
     ;
 
 node parametersKandR
-    : type=type declarators=initDeclaratorList ';'
-    | storage=storageClass type=type declarators=initDeclaratorList ';'
-    | implied=implicitType declarators=implicitInitDeclaratorList ';'
+    : type=declarationSpecifiers declarators=initDeclaratorList ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     ;
 
 node array
@@ -335,7 +378,16 @@ node initializerList
     ;
 
 node typeDefinition
-    : 'typedef' type=type declarators=typedefDeclaratorList ';'
+    : type=typedefSpecifiers declarators=typedefDeclaratorList ';'
+    | implied=typedefImpliedSpecifiers declarators=implicitTypedefDeclaratorList ';'
+    ;
+
+node implicitTypedefDeclaratorList
+    : first=implicitDeclaredTypeName rest=typedefDeclaratorListGroup1*
+    ;
+
+inline implicitDeclaredTypeName -> declare(TypedefName)
+    : value=implicitDeclarator
     ;
 
 node typedefDeclaratorList
@@ -374,9 +426,8 @@ node statementList
     ;
 
 node localDeclaration
-    : specifiers=specifiers declarators=initDeclaratorList? ';'
-    | storage=storageClass specifiers=specifiers declarators=initDeclaratorList? ';'
-    | implied=implicitType declarators=implicitInitDeclaratorList ';'
+    : type=declarationSpecifiers declarators=initDeclaratorList? ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
     | value=typeDefinition
     ;
 
@@ -618,7 +669,17 @@ BlockComment
     : '/*' . * ? '*/' -> channel ( HIDDEN )
     ;
 
-/* What preprocessing leaves: line markers, #pragma and #ident. */
+/*
+ * What preprocessing leaves: line markers, #pragma and #ident. A directive starts a
+ * line, which the lexer sees by taking the line break into the token: this match is
+ * longer than Newline, while a # inside a line matches neither rule. Only a directive
+ * on the first line of the file has no line break before it, so it stays visible, and
+ * compilationUnit accepts it there.
+ */
 Directive
-    : '#' ~ [\r\n] * -> channel ( HIDDEN )
+    : ( '\r' '\n' ? | '\n' ) [ \t] * '#' ~ [\r\n] * -> channel ( HIDDEN )
+    ;
+
+FirstDirective
+    : '#' ~ [\r\n] *
     ;
