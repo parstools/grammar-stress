@@ -1,0 +1,727 @@
+/*
+ * C as gcc takes it, in every standard and with GNU extensions, on all C files of a
+ * large corpus. It starts as a copy of c90.ag, and syntax is added wherever the corpus
+ * shows a gap. It is meant to be general: narrower grammars can follow from it, such
+ * as one only collecting identifiers, or particular versions of GNU C.
+ *
+ * Typedef names come from the name table: the parser declares names as it reduces,
+ * and an identifier whose innermost declaration is a type reaches the grammar as
+ * TypedefName. Scopes close before the closing brace or parenthesis, so the next
+ * token is classified in the right scope. Names in their own namespaces, such as
+ * members, tags and labels, accept both tokens through anyName. int f(int (T))
+ * declares a parameter T even when T is a type, where ISO C reads a parameter of
+ * function type.
+ *
+ * Implicit int is allowed where gcc -std=c90 -pedantic-errors allows it: function
+ * definitions, and declarations with a storage class or a qualifier. A declarator
+ * there cannot start with a typedef name, as that name would be the type.
+ */
+
+grammar CGNU;
+
+options {
+    parser = LR;
+    lookahead = 1;
+    ast = explicit;
+}
+
+channels {
+    HIDDEN
+}
+
+conflicts {
+    prefer shift Else over reduce ifStatement#IfStatement;
+}
+
+node compilationUnit
+    : directive=FirstDirective? declarations=externalDeclaration* EOF
+    ;
+
+node externalDeclaration
+    : value=functionDefinition
+    | value=declaration
+    | '__extension__' value=externalDeclaration
+    ;
+
+node declaration
+    : value=initDeclaration
+    | value=typeDefinition
+    | ';'
+    ;
+
+node functionDefinition
+    : type=declarationSpecifiers declarator=declaredName parameters=parametersKandRList? body=functionBody
+    | declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
+    | implied=impliedSpecifiers declarator=implicitDeclaredName parameters=parametersKandRList? body=functionBody
+    ;
+
+/* The body reopens the scope of the parameters of the function declarator. */
+node functionBody
+    : '{' scopeReopen declarations=localDeclaration* statements=statementList? scopeClose '}'
+    ;
+
+node initDeclaration
+    : type=declarationSpecifiers declarators=initDeclaratorList? ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
+    ;
+
+/*
+ * Specifiers of a declaration in any order, as C90 allows. A declaration goes through
+ * up to three stages: only storage classes and qualifiers, which imply int; then a
+ * keyword type or one typedef name. A typedef name after a keyword type is the
+ * declared name, so it cannot continue the specifiers. typedef itself can appear at
+ * any stage, and the same three stages after it decide that declarators declare types.
+ */
+inline declarationSpecifiers
+    : value=keywordSpecifiers
+    | value=namedSpecifiers
+    ;
+
+inline typedefSpecifiers
+    : value=typedefKeywordSpecifiers
+    | value=typedefNamedSpecifiers
+    ;
+
+inline declarationItem
+    : value=storageClass
+    | value=typeQualifier
+    ;
+
+node impliedSpecifiers
+    : item=declarationItem
+    | list=impliedSpecifiers item=declarationItem
+    ;
+
+node keywordSpecifiers
+    : keyword=keywordSpecifier
+    | list=impliedSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers item=declarationItem
+    ;
+
+node namedSpecifiers
+    : name=TypedefName
+    | list=impliedSpecifiers name=TypedefName
+    | list=namedSpecifiers item=declarationItem
+    ;
+
+node typedefImpliedSpecifiers
+    : 'typedef'
+    | list=impliedSpecifiers 'typedef'
+    | list=typedefImpliedSpecifiers item=declarationItem
+    ;
+
+node typedefKeywordSpecifiers
+    : list=typedefImpliedSpecifiers keyword=keywordSpecifier
+    | list=keywordSpecifiers 'typedef'
+    | list=typedefKeywordSpecifiers keyword=keywordSpecifier
+    | list=typedefKeywordSpecifiers item=declarationItem
+    ;
+
+node typedefNamedSpecifiers
+    : list=typedefImpliedSpecifiers name=TypedefName
+    | list=namedSpecifiers 'typedef'
+    | list=typedefNamedSpecifiers item=declarationItem
+    ;
+
+node implicitInitDeclaratorList
+    : first=implicitInitDeclarator rest=initDeclaratorListGroup1*
+    ;
+
+node implicitInitDeclarator
+    : declarator=implicitDeclaredName
+    | declarator=implicitDeclaredName '=' initializer=initializer
+    ;
+
+inline implicitDeclaredName -> declare(Identifier)
+    : value=implicitDeclarator
+    ;
+
+node implicitDeclarator
+    : direct=implicitDirectDeclarator
+    | pointer=pointer direct=directDeclarator
+    ;
+
+node implicitDirectDeclarator
+    : name=implicitName
+    | '(' value=declarator ')'
+    | base=implicitDirectDeclarator parameters=functionParameters
+    | base=implicitDirectDeclarator array=array
+    ;
+
+inline implicitName -> captureName
+    : value=Identifier
+    ;
+
+node storageClass
+    : keyword='static'
+    | keyword='extern'
+    | keyword='auto'
+    | keyword='register'
+    | keyword='inline'
+    | keyword='__inline'
+    | keyword='__inline__'
+    | keyword='__thread'
+    | keyword='_Thread_local'
+    | keyword='_Noreturn'
+    ;
+
+node type
+    : value=specifiers
+    ;
+
+/* A typedef name is the only specifier of a type, apart from qualifiers. */
+node specifiers
+    : first=keywordSpecifier rest=tailSpecifier*
+    | qualifiers=qualifierList first=keywordSpecifier rest=tailSpecifier*
+    | name=TypedefName
+    | name=TypedefName after=qualifierList
+    | qualifiers=qualifierList name=TypedefName
+    | qualifiers=qualifierList name=TypedefName after=qualifierList
+    ;
+
+node qualifierList
+    : items=typeQualifier+
+    ;
+
+node tailSpecifier
+    : value=keywordSpecifier
+    | value=typeQualifier
+    ;
+
+node keywordSpecifier
+    : keyword='int'
+    | keyword='char'
+    | keyword='short'
+    | keyword='long'
+    | keyword='float'
+    | keyword='double'
+    | keyword='void'
+    | keyword='signed'
+    | keyword='unsigned'
+    | keyword='__signed'
+    | keyword='__signed__'
+    | keyword='_Bool'
+    | keyword='_Complex'
+    | keyword='__complex'
+    | keyword='__complex__'
+    | keyword='__int128'
+    | keyword='__float80'
+    | keyword='__float128'
+    | keyword='__ibm128'
+    | keyword='_Float16'
+    | keyword='_Float32'
+    | keyword='_Float64'
+    | keyword='_Float128'
+    | keyword='_Float32x'
+    | keyword='_Float64x'
+    | keyword='_Float128x'
+    | keyword='_Decimal32'
+    | keyword='_Decimal64'
+    | keyword='_Decimal128'
+    | keyword='__builtin_va_list'
+    | value=structSpecifier
+    | value=enumSpecifier
+    ;
+
+node typeQualifier
+    : keyword='const'
+    | keyword='__const'
+    | keyword='__const__'
+    | keyword='volatile'
+    | keyword='__volatile'
+    | keyword='__volatile__'
+    | keyword='restrict'
+    | keyword='__restrict'
+    | keyword='__restrict__'
+    ;
+
+/* A name which may equal a typedef name without any relation to it. */
+inline anyName
+    : value=Identifier
+    | value=TypedefName
+    ;
+
+node structSpecifier
+    : keyword=structKeyword tag=anyName
+    | keyword=structKeyword tag=anyName? '{' members=memberDeclaration+ '}'
+    ;
+
+inline structKeyword
+    : value='struct'
+    | value='union'
+    ;
+
+node memberDeclaration
+    : type=type declarators=memberDeclaratorList ';'
+    | '__extension__' value=memberDeclaration
+    ;
+
+node memberDeclaratorList
+    : first=memberDeclarator rest=memberDeclaratorListGroup1*
+    ;
+
+inline memberDeclaratorListGroup1
+    : ',' value=memberDeclarator
+    ;
+
+node memberDeclarator
+    : declarator=declarator
+    | declarator=declarator? ':' width=constantExpression
+    ;
+
+node enumSpecifier
+    : 'enum' tag=anyName
+    | 'enum' tag=anyName? '{' enumerators=enumeratorList '}'
+    ;
+
+node enumeratorList
+    : first=enumerator rest=enumeratorListGroup1*
+    ;
+
+inline enumeratorListGroup1
+    : ',' value=enumerator
+    ;
+
+node enumerator
+    : name=enumeratorName
+    | name=enumeratorName '=' value=constantExpression
+    ;
+
+inline enumeratorName -> captureName, declare(Identifier)
+    : value=anyName
+    ;
+
+node initDeclaratorList
+    : first=initDeclarator rest=initDeclaratorListGroup1*
+    ;
+
+inline initDeclaratorListGroup1
+    : ',' value=initDeclarator
+    ;
+
+node initDeclarator
+    : declarator=declaredName
+    | declarator=declaredName '=' initializer=initializer
+    ;
+
+/* A declarator is complete here, so its name is visible in the initializer. */
+inline declaredName -> declare(Identifier)
+    : value=declarator
+    ;
+
+inline declaredTypeName -> declare(TypedefName)
+    : value=declarator
+    ;
+
+inline scopeOpen -> pushScope
+    : empty
+    ;
+
+inline scopeClose -> popScope
+    : empty
+    ;
+
+inline scopeReopen -> reopenScope
+    : empty
+    ;
+
+/*
+ * A single syntactic declarator represents objects, functions, arrays and
+ * pointers to them. Type construction and C constraints decide which kind a
+ * declaration denotes; the parser does not choose a separate branch early.
+ */
+node declarator
+    : direct=directDeclarator
+    | pointer=pointer direct=directDeclarator
+    ;
+
+node pointer
+    : levels=pointerLevel+
+    ;
+
+node pointerLevel
+    : '*' qualifiers=typeQualifier*
+    ;
+
+node directDeclarator
+    : name=declaratorName
+    | '(' value=declarator ')'
+    | base=directDeclarator parameters=functionParameters
+    | base=directDeclarator array=array
+    ;
+
+inline declaratorName -> captureName
+    : value=anyName
+    ;
+
+node functionParameters
+    : '(' scopeOpen parameters=parameterOrTypeList? scopeClose ')'
+    | '(' scopeOpen parameters=parameterOrTypeList ',' variadic='...' scopeClose ')'
+    ;
+
+node parameterOrTypeList
+    : value=parameterOrType
+    | list=parameterOrTypeList ',' item=parameterOrType
+    ;
+
+/* A lone Identifier is a K&R name; a typedef name there would be a prototype. */
+node parameterOrType
+    : type=declarationSpecifiers declarator=declaredName?
+    | type=declarationSpecifiers abstract=parameterAbstractDeclarator
+    | implied=impliedSpecifiers
+    | implied=impliedSpecifiers declarator=implicitDeclaredName
+    | name=Identifier
+    ;
+
+/* An unnamed parameter. Unlike abstractDeclarator it cannot start with a parameter list. */
+node parameterAbstractDeclarator
+    : pointer=pointer
+    | direct=directParameterAbstractDeclarator
+    | pointer=pointer direct=directParameterAbstractDeclarator
+    ;
+
+node directParameterAbstractDeclarator
+    : '(' value=parameterAbstractDeclarator ')'
+    | array=array
+    | base=directParameterAbstractDeclarator parameters=functionParameters
+    | base=directParameterAbstractDeclarator array=array
+    ;
+
+node parametersKandRList
+    : items=parametersKandR+
+    ;
+
+node parametersKandR
+    : type=declarationSpecifiers declarators=initDeclaratorList ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
+    ;
+
+node array
+    : '[' size=constantExpression? ']'
+    ;
+
+node initializer
+    : value=assignmentExpression
+    | '{' items=initializerList '}'
+    | '{' items=initializerList ',' '}'
+    ;
+
+node initializerList
+    : value=initializer
+    | list=initializerList ',' item=initializer
+    ;
+
+node typeDefinition
+    : type=typedefSpecifiers declarators=typedefDeclaratorList ';'
+    | implied=typedefImpliedSpecifiers declarators=implicitTypedefDeclaratorList ';'
+    ;
+
+node implicitTypedefDeclaratorList
+    : first=implicitDeclaredTypeName rest=typedefDeclaratorListGroup1*
+    ;
+
+inline implicitDeclaredTypeName -> declare(TypedefName)
+    : value=implicitDeclarator
+    ;
+
+node typedefDeclaratorList
+    : first=declaredTypeName rest=typedefDeclaratorListGroup1*
+    ;
+
+inline typedefDeclaratorListGroup1
+    : ',' value=declaredTypeName
+    ;
+
+/* A type name as used by casts and sizeof. */
+node typeName
+    : specifiers=specifiers declarator=abstractDeclarator?
+    ;
+
+node abstractDeclarator
+    : pointer=pointer
+    | pointer=pointer? direct=directAbstractDeclarator
+    ;
+
+node directAbstractDeclarator
+    : '(' value=abstractDeclarator ')'
+    | parameters=functionParameters
+    | array=array
+    | base=directAbstractDeclarator parameters=functionParameters
+    | base=directAbstractDeclarator array=array
+    ;
+
+node compoundStatement
+    : '{' scopeOpen declarations=localDeclaration* statements=statementList? scopeClose '}'
+    ;
+
+/* No empty reduction may come before a statement, as T: and T x; start alike. */
+node statementList
+    : items=statement+
+    ;
+
+/* Only one __extension__ here: a second one could also start an expression. */
+node localDeclaration
+    : value=plainLocalDeclaration
+    | '__extension__' value=plainLocalDeclaration
+    ;
+
+node plainLocalDeclaration
+    : type=declarationSpecifiers declarators=initDeclaratorList? ';'
+    | implied=impliedSpecifiers declarators=implicitInitDeclaratorList ';'
+    | value=typeDefinition
+    ;
+
+node statement
+    : value=compoundStatement
+    | expression=commaExpression? ';'
+    | value=ifStatement
+    | keyword='while' '(' condition=commaExpression ')' body=statement
+    | keyword='do' body=statement 'while' '(' condition=commaExpression ')' ';'
+    | keyword='for' '(' init=commaExpression? ';' condition=commaExpression? ';' step=commaExpression? ')' body=statement
+    | keyword='switch' '(' condition=commaExpression ')' body=statement
+    | keyword='case' label=constantExpression ':' body=statement
+    | keyword='default' ':' body=statement
+    | name=anyName ':' body=statement
+    | keyword='goto' target=anyName ';'
+    | keyword='break' ';'
+    | keyword='continue' ';'
+    | keyword='return' expression=commaExpression? ';'
+    ;
+
+/* A dangling else belongs to the nearest if. */
+node ifStatement
+    : 'if' '(' condition=commaExpression ')' then=statement                       #IfStatement
+    | 'if' '(' condition=commaExpression ')' then=statement Else otherwise=statement #IfElseStatement
+    ;
+
+node constantExpression
+    : value=conditionalExpression
+    ;
+
+node commaExpression
+    : value=assignmentExpression
+    | left=commaExpression op=',' right=assignmentExpression
+    ;
+
+node assignmentExpression
+    : value=conditionalExpression
+    | target=unaryExpression op=assignmentOperator source=assignmentExpression
+    ;
+
+inline assignmentOperator
+    : value='='
+    | value='*='
+    | value='/='
+    | value='%='
+    | value='+='
+    | value='-='
+    | value='<<='
+    | value='>>='
+    | value='&='
+    | value='^='
+    | value='|='
+    ;
+
+node conditionalExpression
+    : value=logicalOrExpression
+    | condition=logicalOrExpression '?' then=commaExpression ':' otherwise=conditionalExpression
+    ;
+
+node logicalOrExpression
+    : value=logicalAndExpression
+    | left=logicalOrExpression op='||' right=logicalAndExpression
+    ;
+
+node logicalAndExpression
+    : value=inclusiveOrExpression
+    | left=logicalAndExpression op='&&' right=inclusiveOrExpression
+    ;
+
+node inclusiveOrExpression
+    : value=exclusiveOrExpression
+    | left=inclusiveOrExpression op='|' right=exclusiveOrExpression
+    ;
+
+node exclusiveOrExpression
+    : value=andExpression
+    | left=exclusiveOrExpression op='^' right=andExpression
+    ;
+
+node andExpression
+    : value=equalityExpression
+    | left=andExpression op='&' right=equalityExpression
+    ;
+
+node equalityExpression
+    : value=relationalExpression
+    | left=equalityExpression op='==' right=relationalExpression
+    | left=equalityExpression op='!=' right=relationalExpression
+    ;
+
+node relationalExpression
+    : value=shiftExpression
+    | left=relationalExpression op='<' right=shiftExpression
+    | left=relationalExpression op='>' right=shiftExpression
+    | left=relationalExpression op='<=' right=shiftExpression
+    | left=relationalExpression op='>=' right=shiftExpression
+    ;
+
+node shiftExpression
+    : value=additiveExpression
+    | left=shiftExpression op='<<' right=additiveExpression
+    | left=shiftExpression op='>>' right=additiveExpression
+    ;
+
+node additiveExpression
+    : value=multiplicativeExpression
+    | left=additiveExpression op='+' right=multiplicativeExpression
+    | left=additiveExpression op='-' right=multiplicativeExpression
+    ;
+
+node multiplicativeExpression
+    : value=castExpression
+    | left=multiplicativeExpression op='*' right=castExpression
+    | left=multiplicativeExpression op='/' right=castExpression
+    | left=multiplicativeExpression op='%' right=castExpression
+    ;
+
+node castExpression
+    : value=unaryExpression
+    | '(' type=typeName ')' operand=castExpression
+    ;
+
+node unaryExpression
+    : value=postfixExpression
+    | op='++' operand=unaryExpression
+    | op='--' operand=unaryExpression
+    | op=unaryOperator operand=castExpression
+    | op='sizeof' operand=unaryExpression
+    | op='sizeof' '(' type=typeName ')'
+    ;
+
+inline unaryOperator
+    : value='__extension__'
+    | value='&'
+    | value='*'
+    | value='+'
+    | value='-'
+    | value='~'
+    | value='!'
+    ;
+
+node postfixExpression
+    : value=primaryExpression
+    | base=postfixExpression '[' index=commaExpression ']'
+    | base=postfixExpression '(' arguments=argumentExpressionList? ')'
+    | base=postfixExpression op='.' member=anyName
+    | base=postfixExpression op='->' member=anyName
+    | base=postfixExpression op='++'
+    | base=postfixExpression op='--'
+    ;
+
+node argumentExpressionList
+    : value=assignmentExpression
+    | list=argumentExpressionList ',' item=assignmentExpression
+    ;
+
+node primaryExpression
+    : name=Identifier
+    | value=constant
+    | strings=StringLiteral+
+    | '(' value=commaExpression ')'
+    ;
+
+inline constant
+    : value=IntegerConstant
+    | value=FloatingConstant
+    | value=CharacterConstant
+    ;
+
+Else
+    : 'else'
+    ;
+
+Identifier
+    : Nondigit ( Nondigit | Digit ) *
+    ;
+
+/* Never selected by the lexer, as Identifier comes first. */
+TypedefName
+    : Nondigit ( Nondigit | Digit ) * -> nameOf(Identifier)
+    ;
+
+IntegerConstant
+    : ( NonzeroDigit Digit * | '0' OctalDigit * | '0' [xX] HexDigit + ) IntegerSuffix ?
+    ;
+
+FloatingConstant
+    : ( Digit + '.' Digit * | '.' Digit + ) Exponent ? [fFlL] ? | Digit + Exponent [fFlL] ?
+    ;
+
+CharacterConstant
+    : 'L' ? '\'' ( ~ ['\\\r\n] | EscapeSequence ) + '\''
+    ;
+
+StringLiteral
+    : 'L' ? '"' ( ~ ["\\\r\n] | EscapeSequence ) * '"'
+    ;
+
+fragment Digit
+    : [0-9]
+    ;
+
+fragment NonzeroDigit
+    : [1-9]
+    ;
+
+fragment OctalDigit
+    : [0-7]
+    ;
+
+fragment HexDigit
+    : [0-9a-fA-F]
+    ;
+
+fragment Nondigit
+    : [a-zA-Z_]
+    ;
+
+fragment IntegerSuffix
+    : [uU] ( 'l' 'l' ? | 'L' 'L' ? ) ? | ( 'l' 'l' ? | 'L' 'L' ? ) [uU] ?
+    ;
+
+fragment Exponent
+    : [eE] [+-] ? Digit +
+    ;
+
+fragment EscapeSequence
+    : '\\' ['"?\\abfnrtv] | '\\' OctalDigit OctalDigit ? OctalDigit ? | '\\x' HexDigit + | '\\' [uU] HexDigit +
+    ;
+
+Whitespace
+    : [ \t] + -> channel ( HIDDEN )
+    ;
+
+Newline
+    : ( '\r' '\n' ? | '\n' ) -> channel ( HIDDEN )
+    ;
+
+BlockComment
+    : '/*' . * ? '*/' -> channel ( HIDDEN )
+    ;
+
+/*
+ * What preprocessing leaves: line markers, #pragma and #ident. A directive starts a
+ * line, which the lexer sees by taking the line break into the token: this match is
+ * longer than Newline, while a # inside a line matches neither rule. Only a directive
+ * on the first line of the file has no line break before it, so it stays visible, and
+ * compilationUnit accepts it there.
+ */
+Directive
+    : ( '\r' '\n' ? | '\n' ) [ \t] * '#' ~ [\r\n] * -> channel ( HIDDEN )
+    ;
+
+FirstDirective
+    : '#' ~ [\r\n] *
+    ;
