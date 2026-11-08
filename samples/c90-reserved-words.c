@@ -1,7 +1,7 @@
 /*
  * What gcc -std=c90 -pedantic-errors accepts beyond plain C90: forms with words
- * starting with __, which are reserved for the compiler. c90.ag has to accept them,
- * apart from __extension__, which gnu-only.c covers.
+ * starting with __, which are reserved for the compiler. Being outside the norm, they
+ * belong to cGNU.ag and not to c90.ag, which is plain C90. __extension__ is in gnu-only.c.
  *
  *     gcc -std=c90 -pedantic-errors -c c90-reserved-words.c
  *

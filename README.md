@@ -90,10 +90,11 @@ with the tokens at which parsing stopped:
 | `has-excluded-word` | left out by `--exclude-word` |
 | `preprocessor-failed`, `agas-error`, `timeout` | the file could not be judged |
 
-`--no-includes --exclude-word __extension__` is the set for `c90.ag`: files which need no
-names from headers, and no GNU syntax that `__extension__` lets through. `--pure` also drops files with words starting with `__` after
-preprocessing. `-pedantic-errors` alone does not reject `__attribute__` or `__asm__`,
-so a file which passes it is not yet pure C90. `tools/compare_forms.py` shows which
+`--pure` is the set for `c90.ag`: no includes, and no words which bring GNU syntax after
+preprocessing. `-pedantic-errors` alone does not reject `__attribute__` or `__asm__`, so
+a file which passes it is not yet pure C90. Other words starting with `__`, such as
+`__builtin_abort`, are ordinary names to a grammar and stay. `--no-includes` only drops
+files with includes, and `--exclude-word` files with a given word. `tools/compare_forms.py` shows which
 forms each gcc mode and each grammar accepts, and `samples/` holds the same difference
-as real files: `c90-reserved-words.c` for what `c90.ag` adds to plain C90, and
-`gnu-only.c` for what only `cGNU.ag` takes.
+as real files: `c90-reserved-words.c` for what gcc lets through in its strict C90 mode,
+and `gnu-only.c` for what it does not. Both are for `cGNU.ag` and outside plain `c90.ag`.

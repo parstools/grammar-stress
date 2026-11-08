@@ -1,6 +1,6 @@
 /*
  * What gcc accepts only outside -std=c90 -pedantic-errors: GNU syntax without reserved
- * words, and forms of C99 and later. cGNU.ag has to accept them, and c90.ag not all.
+ * words, and forms of C99 and later. cGNU.ag has to accept them, and c90.ag does not.
  *
  *     gcc -std=gnu23 -c gnu-only.c
  *

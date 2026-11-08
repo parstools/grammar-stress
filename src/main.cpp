@@ -102,8 +102,8 @@ from C90.
   --language   c takes *.c with gcc; c++ takes *.C, *.cc, *.cpp and *.cxx with g++
   --no-includes  take only files without includes
   --exclude-word  leave out files with this word after preprocessing; can be repeated
-  --pure       take only files without includes and without __ words after
-               preprocessing, as -pedantic-errors does not reject those words
+  --pure       take only plain C: no includes, and no words after preprocessing which
+               bring GNU syntax, as -pedantic-errors does not reject them
   --max-bytes  skip a file as too-big when it produces more than this after
                preprocessing, not counting system headers
   --skip-list  skip the files listed there, relative to ROOT, before any work
@@ -373,12 +373,19 @@ auto hasWord(const std::string &text, const std::string &word) -> bool {
     return false;
 }
 
-auto hasDoubleUnderscoreWord(const std::string &text) -> bool {
-    for (std::size_t found = text.find("__"); found != std::string::npos; found = text.find("__", found + 1))
-        if ((found == 0 || !isWordCharacter(text[found - 1])) && found + 2 < text.size() &&
-            isWordCharacter(text[found + 2]))
-            return true;
-    return false;
+// Words with which gcc -pedantic-errors lets through syntax outside plain C90. Other words
+// starting with __, such as __builtin_abort, are ordinary names to a grammar.
+auto hasGnuSyntaxWord(const std::string &text) -> bool {
+    static const std::vector<std::string> words{
+            "__attribute",   "__attribute__", "__asm",         "__asm__",     "__extension__", "__const",
+            "__const__",     "__volatile",    "__volatile__",  "__restrict",  "__restrict__",  "__inline",
+            "__inline__",    "__signed",      "__signed__",    "__thread",    "__typeof",      "__typeof__",
+            "__alignof",     "__alignof__",   "__float80",     "__float128",  "__ibm128",      "__int128",
+            "__int128_t",    "__uint128_t",   "__auto_type",   "__label__",   "__real",        "__real__",
+            "__imag",        "__imag__",      "__complex",     "__complex__", "__bf16",        "__seg_fs",
+            "__seg_gs",      "__builtin_va_list",  "__builtin_sysv_va_list",  "__builtin_ms_va_list",
+            "__builtin_va_arg",   "__builtin_offsetof",  "__builtin_types_compatible_p"};
+    return std::ranges::any_of(words, [&](const std::string &word) { return hasWord(text, word); });
 }
 
 struct Preprocessed {
@@ -649,7 +656,7 @@ auto examine(const Options &options, const fs::path &compiler, const fs::path &s
             return finding;
         }
     }
-    if (options.pureOnly && hasDoubleUnderscoreWord(code)) {
+    if (options.pureOnly && hasGnuSyntaxWord(code)) {
         finding.category = "has-gnu-words";
         return finding;
     }
