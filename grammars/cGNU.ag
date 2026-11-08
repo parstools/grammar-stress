@@ -338,6 +338,9 @@ inline attributeName
     | value='const'
     | value='__const'
     | value='__const__'
+    | value='volatile'
+    | value='__volatile'
+    | value='__volatile__'
     ;
 
 /* What can follow a declarator. */
@@ -507,6 +510,7 @@ node initDeclaratorList
 
 inline initDeclaratorListGroup1
     : ',' value=initDeclarator
+    | ',' attributes=attributeSpecifier value=initDeclarator
     ;
 
 node initDeclarator

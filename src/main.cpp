@@ -52,6 +52,7 @@ struct Options {
     std::string standard{"c90"};
     bool pedantic{true};
     bool pureOnly{false};
+    bool noIncludes{false};
     bool preprocessed{false};
     std::uintmax_t maximumBytes{200'000};
     std::size_t limit{0};
@@ -81,7 +82,7 @@ constexpr std::string_view usage =
                  [--max-bytes N] [--skip-list FILE] [--exclude-dir NAME] [--jobs N] [--limit N]
   grammar-stress prepare ROOT --from-lists DIR --preprocessed-out DIR [--language c] [--jobs N]
   grammar-stress run ROOT --agas PATH --package DIR --out DIR [--preprocessed]
-                 [--language c] [--std c90] [--no-pedantic] [--pure] [--max-bytes N]
+                 [--language c] [--std c90] [--no-pedantic] [--no-includes] [--pure] [--max-bytes N]
                  [--skip-list FILE] [--exclude-dir NAME] [--jobs N] [--limit N]
                  [--sample N] [--seed N] [--only-failing RESULTS.TSV]
 
@@ -98,6 +99,7 @@ Sources are judged with their comments removed, so // does not exclude a file
 from C90.
 
   --language   c takes *.c with gcc; c++ takes *.C, *.cc, *.cpp and *.cxx with g++
+  --no-includes  take only files without includes
   --pure       take only files without includes and without __ words after
                preprocessing, as -pedantic-errors does not reject those words
   --max-bytes  skip a file as too-big when it produces more than this after
@@ -143,6 +145,8 @@ auto parseOptions(int argc, char **argv) -> Options {
             options.pedantic = false;
         else if (name == "--pure")
             options.pureOnly = true;
+        else if (name == "--no-includes")
+            options.noIncludes = true;
         else if (name == "--max-bytes")
             options.maximumBytes = std::stoull(value());
         else if (name == "--skip-list")
@@ -622,7 +626,7 @@ auto examine(const Options &options, const fs::path &compiler, const fs::path &s
         finding.category = "too-big";
         return finding;
     }
-    if (options.pureOnly && includes) {
+    if ((options.pureOnly || options.noIncludes) && includes) {
         finding.category = "has-include";
         return finding;
     }

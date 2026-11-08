@@ -89,6 +89,10 @@ with the tokens at which parsing stopped:
 | `has-include`, `has-gnu-words` | left out by `--pure` |
 | `preprocessor-failed`, `agas-error`, `timeout` | the file could not be judged |
 
-`--pure` keeps files without includes and without words starting with `__` after
+`--no-includes` keeps files without includes, which need no names from headers: this
+is the set for `c90.ag`. `--pure` also drops files with words starting with `__` after
 preprocessing. `-pedantic-errors` alone does not reject `__attribute__` or `__asm__`,
-so a file which passes it is not yet pure C90.
+so a file which passes it is not yet pure C90. `tools/compare_forms.py` shows which
+forms each gcc mode and each grammar accepts, and `samples/` holds the same difference
+as real files: `c90-reserved-words.c` for what `c90.ag` adds to plain C90, and
+`gnu-only.c` for what only `cGNU.ag` takes.
