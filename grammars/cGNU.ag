@@ -29,8 +29,13 @@ channels {
     HIDDEN
 }
 
+/*
+ * An attribute after a declarator belongs to that declarator. So a K&R parameter
+ * declaration cannot start with an attribute: int f(a) __attribute__((x)) int a; { }
+ */
 conflicts {
     prefer shift Else over reduce ifStatement#IfStatement;
+    prefer reduce declaratorSuffixes#NoSuffix over shift AttributeWord;
 }
 
 node compilationUnit
@@ -129,8 +134,8 @@ node implicitInitDeclaratorList
     ;
 
 node implicitInitDeclarator
-    : declarator=implicitDeclaredName
-    | declarator=implicitDeclaredName '=' initializer=initializer
+    : declarator=implicitDeclaredName suffixes=declaratorSuffixes
+    | declarator=implicitDeclaredName suffixes=declaratorSuffixes '=' initializer=initializer
     ;
 
 inline implicitDeclaredName -> declare(Identifier)
@@ -234,6 +239,56 @@ node typeQualifier
     | keyword='restrict'
     | keyword='__restrict'
     | keyword='__restrict__'
+    | value=attributeSpecifier
+    ;
+
+/* An attribute stands where a qualifier can, and in the few other places using it. */
+node attributeSpecifier
+    : AttributeWord '(' '(' items=attributeList ')' ')'
+    ;
+
+node attributeList
+    : value=attributeItem
+    | list=attributeList ',' item=attributeItem
+    ;
+
+node attributeItem
+    : empty
+    | name=attributeName
+    | name=attributeName '(' arguments=argumentExpressionList? ')'
+    ;
+
+/* Attribute names include the keyword const. */
+inline attributeName
+    : value=anyName
+    | value='const'
+    | value='__const'
+    | value='__const__'
+    ;
+
+/* What can follow a declarator. */
+inline declaratorSuffix
+    : value=attributeSpecifier
+    | value=asmLabel
+    ;
+
+/* Shared lists, so that alternatives need no separate empty reductions. */
+node declaratorSuffixes
+    : empty                                            #NoSuffix
+    | list=declaratorSuffixes item=declaratorSuffix    #MoreSuffixes
+    ;
+
+node attributeSpecifiers
+    : items=attributeSpecifier*
+    ;
+
+node asmLabel
+    : asmKeyword '(' name=StringLiteral+ ')'
+    ;
+
+inline asmKeyword
+    : value='__asm__'
+    | value='__asm'
     ;
 
 /* A name which may equal a typedef name without any relation to it. */
@@ -243,8 +298,13 @@ inline anyName
     ;
 
 node structSpecifier
-    : keyword=structKeyword tag=anyName
-    | keyword=structKeyword tag=anyName? '{' members=memberDeclaration+ '}'
+    : head=structHead tag=anyName
+    | head=structHead tag=anyName? '{' members=memberDeclaration+ '}'
+    ;
+
+/* A shared rule, so that LR(1) need not choose between the rules above early. */
+node structHead
+    : keyword=structKeyword attributes=attributeSpecifier*
     ;
 
 inline structKeyword
@@ -266,13 +326,17 @@ inline memberDeclaratorListGroup1
     ;
 
 node memberDeclarator
-    : declarator=declarator
-    | declarator=declarator? ':' width=constantExpression
+    : declarator=declarator suffixes=declaratorSuffix*
+    | declarator=declarator? ':' width=constantExpression suffixes=declaratorSuffix*
     ;
 
 node enumSpecifier
-    : 'enum' tag=anyName
-    | 'enum' tag=anyName? '{' enumerators=enumeratorList '}'
+    : head=enumHead tag=anyName
+    | head=enumHead tag=anyName? '{' enumerators=enumeratorList '}'
+    ;
+
+node enumHead
+    : 'enum' attributes=attributeSpecifier*
     ;
 
 node enumeratorList
@@ -284,8 +348,8 @@ inline enumeratorListGroup1
     ;
 
 node enumerator
-    : name=enumeratorName
-    | name=enumeratorName '=' value=constantExpression
+    : name=enumeratorName attributes=attributeSpecifiers
+    | name=enumeratorName attributes=attributeSpecifiers '=' value=constantExpression
     ;
 
 inline enumeratorName -> captureName, declare(Identifier)
@@ -301,8 +365,8 @@ inline initDeclaratorListGroup1
     ;
 
 node initDeclarator
-    : declarator=declaredName
-    | declarator=declaredName '=' initializer=initializer
+    : declarator=declaredName suffixes=declaratorSuffixes
+    | declarator=declaredName suffixes=declaratorSuffixes '=' initializer=initializer
     ;
 
 /* A declarator is complete here, so its name is visible in the initializer. */
@@ -367,10 +431,11 @@ node parameterOrTypeList
 
 /* A lone Identifier is a K&R name; a typedef name there would be a prototype. */
 node parameterOrType
-    : type=declarationSpecifiers declarator=declaredName?
+    : type=declarationSpecifiers
+    | type=declarationSpecifiers declarator=declaredName suffixes=declaratorSuffix*
     | type=declarationSpecifiers abstract=parameterAbstractDeclarator
     | implied=impliedSpecifiers
-    | implied=impliedSpecifiers declarator=implicitDeclaredName
+    | implied=impliedSpecifiers declarator=implicitDeclaredName suffixes=declaratorSuffix*
     | name=Identifier
     ;
 
@@ -418,7 +483,7 @@ node typeDefinition
     ;
 
 node implicitTypedefDeclaratorList
-    : first=implicitDeclaredTypeName rest=typedefDeclaratorListGroup1*
+    : first=implicitDeclaredTypeName suffixes=declaratorSuffix* rest=typedefDeclaratorListGroup1*
     ;
 
 inline implicitDeclaredTypeName -> declare(TypedefName)
@@ -426,11 +491,15 @@ inline implicitDeclaredTypeName -> declare(TypedefName)
     ;
 
 node typedefDeclaratorList
-    : first=declaredTypeName rest=typedefDeclaratorListGroup1*
+    : first=declaredTypeName suffixes=declaratorSuffix* rest=typedefDeclaratorListGroup1*
     ;
 
 inline typedefDeclaratorListGroup1
-    : ',' value=declaredTypeName
+    : ',' value=suffixedTypeName
+    ;
+
+node suffixedTypeName
+    : name=declaredTypeName suffixes=declaratorSuffix*
     ;
 
 /* A type name as used by casts and sizeof. */
@@ -483,6 +552,7 @@ node statement
     | keyword='case' label=constantExpression ':' body=statement
     | keyword='default' ':' body=statement
     | name=anyName ':' body=statement
+    | attribute=attributeSpecifier ';'
     | keyword='goto' target=anyName ';'
     | keyword='break' ';'
     | keyword='continue' ';'
@@ -598,6 +668,14 @@ node unaryExpression
     | op=unaryOperator operand=castExpression
     | op='sizeof' operand=unaryExpression
     | op='sizeof' '(' type=typeName ')'
+    | op=alignofKeyword operand=unaryExpression
+    | op=alignofKeyword '(' type=typeName ')'
+    ;
+
+inline alignofKeyword
+    : value='_Alignof'
+    | value='__alignof'
+    | value='__alignof__'
     ;
 
 inline unaryOperator
@@ -640,6 +718,10 @@ inline constant
 
 Else
     : 'else'
+    ;
+
+AttributeWord
+    : '__attribute__' | '__attribute'
     ;
 
 Identifier
